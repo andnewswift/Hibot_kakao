@@ -269,27 +269,68 @@ DatabaseWatcher.prototype = {
 							if(by == "" && send_username == "") Bot.send(room, "다음부턴 착하게 사세요!", KTPackage);
 							else Bot.send(room, send_username + by + "강퇴하였습니다. 다음부턴 착하게 사세요!", KTPackage);
 						}
-						break;
-					case 1:
-						if((obj.get("message") + "").startsWith("TEST"))
-							Bot.send(room, getRecentChatData((obj.get("message") + "").replace("TEST ", "") + 0).toString(4), KTPackage);
-						break;
-					case 26:
-						let chat_id = obj.get("attachment").getString("src_logId");
-						let src_message = new JSONObject(sqlQuery(db, "SELECT * FROM chat_logs WHERE id=?", [chat_id])[0]);
-						let userId1, msg1, attachment1, type;
-						switch(obj.get("message") + ""){
-							case "who":
-								userid = obj.get("attachment").getString("src_userId");
-								Bot.send(room, "이름: "+getUserInfo(userid, "name")
-								+"\n프로필 사진: "+getUserInfo(userid, "original_profile_image_url")
-								+"\n상태 메시지: "+getUserInfo(userid, "status_message")
-								+"\n기타 정보: "+getUserInfo(userid, "v"), KTPackage);
-								break;
-							case "photolink":
-								if(obj.get("attachment").get("src_type") != 2) {
-									Bot.send(room, "사진이 아닙니다!", KTPackage);
-									return;
+						if (connectDB()) {
+							let count = DatabaseUtils.queryNumEntries(db, "chat_logs", null);
+							if (this.pre == null) {
+								Log.d("first execute");
+								this.pre = count;
+							} else {
+								let change = count - this.pre;
+								this.pre = count;
+								if (change > 0) {//if something changed
+									let stack = getRecentChatData(change);
+									while (stack.length > 0) {
+										let obj = stack.pop();
+										obj.message = decrypt(obj.user_id, obj.v.enc, "" + obj.message);
+										let room = getRoomName(obj.chat_id);
+										let send_username = getUserInfo(obj.user_id, "name");
+										if(send_username == null) send_username = "";
+										else if(!(obj.v.origin == "DELMEM" && JSONObject(obj.message).get("feedType") == 2) && (obj.v.origin == "KICKMEM" || obj.v.origin == "DELMEM")) send_username = send_username + "님이 ";
+										else send_username = send_username + "님 ";
+										if (obj.v.origin == "NEWMEM")
+											Bot.send(room, send_username + "안녕하세요! 공지에 있는 규칙 필독해주세요.", KTPackage);
+										else if (obj.v.origin == "DELMEM" && JSONObject(obj.message).get("feedType") == 2)
+											Bot.send(room, send_username + "안녕히가세요!", KTPackage);
+										else if (obj.v.origin == "KICKMEM" || obj.v.origin == "DELMEM"){
+											obj.message = new JSONObject(obj.message);
+											let by = getUserInfo(obj.message.get("member").getString("userId"), "name");
+											if(by == null) by = "";
+											else by = by + "님을 ";
+											if(by == "" && send_username == "") Bot.send(room, "다음부턴 착하게 사세요!", KTPackage);
+											else Bot.send(room, send_username + by + "강퇴하였습니다. 다음부턴 착하게 사세요!", KTPackage);
+										}
+										else if (obj.type == 26 && obj.message == "who") {
+											obj.attachment = new JSONObject(decrypt(obj.user_id, obj.v.enc, "" + obj.attachment));
+											let userid = obj.attachment.getString("src_userId");
+											Bot.send(room, "이름: "+getUserInfo(userid, "name")
+											+"\n프로필 사진: "+getUserInfo(userid, "original_profile_image_url")
+											+"\n상태 메시지: "+getUserInfo(userid, "status_message"), KTPackage);
+										}
+										else if (obj.type == 26 && obj.message == "photolink") {
+											obj.attachment = new JSONObject(decrypt(obj.user_id, obj.v.enc, "" + obj.attachment));
+											if(obj.attachment.get("src_type") != 2) {
+												Bot.send(room, "사진이 아닙니다!", KTPackage);
+												return;
+											}
+											let chat_id = new _String(obj.attachment.get("src_logId"));
+											let cursor = db.rawQuery("SELECT * FROM chat_logs WHERE id=" + chat_id, null);
+											cursor.moveToNext();
+											let userId1=cursor.getString(4), msg1=cursor.getString(6);
+											cursor.close();
+											let photo = decrypt(userId1, getUserInfo(userId1, "enc"), "" + msg1);
+											photo = new JSONObject(photo);
+											Bot.send(room, "링크: " + photo.get("url"), KTPackage);
+										}
+										else if (obj.type == 26 && obj.message == "msgraw"){
+											obj.attachment = new JSONObject(decrypt(obj.user_id, obj.v.enc, "" + obj.attachment));
+											let chat_id = new _String(obj.attachment.get("src_logId"));
+											let cursor = db.rawQuery("SELECT * FROM chat_logs WHERE id=" + chat_id, null);
+											cursor.moveToNext();
+											let userId1 = cursor.getString(4), msg1 = cursor.getString(5), attachment1 = cursor.getString(6), type = cursor.getString(2);
+											cursor.close();
+											Bot.send(room, "msg type: " + type + "\nmsg: " + decrypt(userId1, getUserInfo(userId1, "enc"), "" + msg1) + "\nattachment: " + decrypt(userId1, getUserInfo(userId1, "enc"), "" + attachment1), KTPackage);
+										}
+									}
 								}
 								userId1 = src_message.get("user_id");
 								msg1 = src_message.get("message");
